@@ -1,0 +1,28 @@
+target:
+  provider: siliconflow
+  model: "<待确认>"
+
+strong_defender:
+  provider: siliconflow
+  model: "<待确认>"
+
+adjudicator:
+  provider: siliconflow
+  model: "<待确认>"
+
+repair:
+  provider: openrouter
+  model: "<待确认>"
+
+detectors:
+  boundary:
+    provider: openrouter
+    model: "<待确认>"
+
+  semantic:
+    provider: openrouter
+    model: "<待确认>"
+
+  indirect:
+    provider: openrouter
+    model: "<待确认>"

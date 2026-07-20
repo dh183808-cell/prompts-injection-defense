@@ -1,0 +1,13 @@
+pyproject.toml
+src/pi_defense/__init__.py
+src/pi_defense/canary.py
+src/pi_defense/clients.py
+src/pi_defense/prompts.py
+src/pi_defense/runner.py
+src/pi_defense/schemas.py
+src/pi_defense.egg-info/PKG-INFO
+src/pi_defense.egg-info/SOURCES.txt
+src/pi_defense.egg-info/dependency_links.txt
+src/pi_defense.egg-info/top_level.txt
+src/pi_defense/workflows/b0.py
+tests/test_canary.py
