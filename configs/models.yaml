@@ -1,28 +1,28 @@
 target:
   provider: siliconflow
-  model: "<待确认>"
+  model: "zai-org/GLM-4.5-Air"
 
 strong_defender:
   provider: siliconflow
-  model: "<待确认>"
+  model: "deepseek-ai/DeepSeek-V4-Flash"
 
 adjudicator:
   provider: siliconflow
-  model: "<待确认>"
+  model: "deepseek-ai/DeepSeek-V4-Flash"
 
 repair:
   provider: openrouter
-  model: "<待确认>"
+  model: "openai/gpt-oss-20b"
 
 detectors:
   boundary:
     provider: openrouter
-    model: "<待确认>"
+    model: "qwen/qwen3-14b"
 
   semantic:
     provider: openrouter
-    model: "<待确认>"
+    model: "google/gemma-3-12b-it"
 
   indirect:
     provider: openrouter
-    model: "<待确认>"
+    model: "mistralai/ministral-14b-2512"
