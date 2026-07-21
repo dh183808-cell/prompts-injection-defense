@@ -1,3 +1,5 @@
+import uuid
+from datetime import datetime, timezone
 from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
@@ -16,6 +18,12 @@ class ExperimentCase(BaseModel):
 
     attack_family: Optional[str] = None
     source_family: Optional[str] = None
+
+    # 数据源元数据（9.1）
+    source_type: Optional[Literal["copied", "adapted", "benchmark-inspired", "generated", "original"]] = None
+    reference: Optional[str] = None
+    adaptation_note: Optional[str] = None
+    attack_transform: Optional[str] = None
 
 
 class DetectorReport(BaseModel):
@@ -56,9 +64,14 @@ class RepairReport(BaseModel):
 
 
 class RunRecord(BaseModel):
+    """单次实验运行的结果记录。"""
+
     run_id: str
     case_id: str
+    base_case_id: str
     architecture: Literal["B0", "B1", "B2", "B3"]
+    kind: Literal["benign", "direct", "indirect"]
+    attack_family: Optional[str] = None
 
     configured_model: str
     actual_model: Optional[str] = None
@@ -73,3 +86,12 @@ class RunRecord(BaseModel):
     latency_ms: Optional[float] = None
     input_tokens: Optional[int] = None
     output_tokens: Optional[int] = None
+
+    error: Optional[str] = None
+    timestamp: str = ""
+
+    def model_post_init(self, __context):
+        if not self.timestamp:
+            self.timestamp = datetime.now(timezone.utc).isoformat()
+        if not self.run_id:
+            self.run_id = f"b0_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
