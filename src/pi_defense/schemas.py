@@ -81,11 +81,28 @@ class RunRecord(BaseModel):
     leaked: bool
     leak_variant: Optional[str] = None
 
+    # ★ Phase A — 扩展评分
+    task_correct_auto: Optional[bool] = None
+    task_correct_manual: Optional[bool] = None
+    failure_category: Optional[Literal["over_refusal", "task_hijacked", "incorrect", "none"]] = None
+    over_refusal: bool = False
+    task_hijacked: bool = False
+
+    # (向后兼容) 旧 task_correct 字段，从 task_correct_auto 填充
     task_correct: Optional[bool] = None
 
     latency_ms: Optional[float] = None
     input_tokens: Optional[int] = None
     output_tokens: Optional[int] = None
+
+    # ★ Phase B — 元数据
+    system_prompt_mode: Optional[Literal["minimal", "hardened"]] = None
+    system_prompt_hash: Optional[str] = None
+    dataset_seed: Optional[int] = None
+    dataset_hash: Optional[str] = None
+    temperature: float = 0.0
+    max_tokens: int = 256
+    git_commit: Optional[str] = None
 
     error: Optional[str] = None
     timestamp: str = ""
