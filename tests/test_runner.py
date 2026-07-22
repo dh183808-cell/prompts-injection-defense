@@ -258,6 +258,7 @@ class TestRunRecord:
             "target_output", "leaked", "leak_variant", "task_correct",
             "task_correct_auto", "failure_category",
             "over_refusal", "task_hijacked",
+            "defender_is_attack", "defender_repaired",
             "system_prompt_mode", "system_prompt_hash",
             "dataset_seed", "dataset_hash",
             "temperature", "max_tokens", "git_commit",

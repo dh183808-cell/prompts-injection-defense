@@ -1,0 +1,7 @@
+target:
+  provider: siliconflow
+  model: "zai-org/GLM-4.5-Air"
+
+strong_defender:
+  provider: siliconflow
+  model: "nex-agi/Nex-N2-Pro"

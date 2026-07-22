@@ -9,7 +9,7 @@
 - Wilson 95% 置信区间
 
 用法：
-    python scripts/report_baseline.py runs/b0_formal.jsonl --output reports/b0_summary.csv
+    python scripts/report_baseline.py runs/dataset_formal.jsonl --output reports/b0_summary.csv
 """
 
 import argparse

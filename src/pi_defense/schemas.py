@@ -104,6 +104,15 @@ class RunRecord(BaseModel):
     max_tokens: int = 256
     git_commit: Optional[str] = None
 
+    # ★ B1-specific — defender metadata
+    defender_is_attack: bool = False
+    defender_repaired: bool = False
+    defender_model: Optional[str] = None
+    defender_latency_ms: Optional[float] = None
+    defender_input_tokens: Optional[int] = None
+    defender_output_tokens: Optional[int] = None
+    defender_raw: Optional[str] = None
+
     error: Optional[str] = None
     timestamp: str = ""
 

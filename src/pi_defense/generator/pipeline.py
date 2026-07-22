@@ -2,7 +2,7 @@
 
 用法：
     python -m pi_defense.generator \\
-        --output data/generated/b0_formal.jsonl \\
+        --output data/generated/dataset_formal.jsonl \\
         --canary-map data/generated/canary_map.json \\
         --direct-per-family 5 \\
         --indirect-per-cell 2 \\
@@ -32,8 +32,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--output",
-        default="data/generated/b0_formal.jsonl",
-        help="输出 JSONL 路径（默认：data/generated/b0_formal.jsonl）",
+        default="data/generated/dataset_formal.jsonl",
+        help="输出 JSONL 路径（默认：data/generated/dataset_formal.jsonl）",
     )
     parser.add_argument(
         "--canary-map",
