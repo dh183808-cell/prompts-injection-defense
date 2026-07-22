@@ -25,6 +25,7 @@ from pi_defense.scoring import score_task
 from pi_defense.schemas import ExperimentCase, RunRecord
 from pi_defense.workflows.b0 import run_b0
 from pi_defense.workflows.b1 import run_b1
+from pi_defense.workflows.b2 import run_b2
 
 load_dotenv()
 
@@ -136,6 +137,19 @@ async def main(argv: list[str] | None = None) -> None:
         defender_provider = defender_cfg.get("provider", "")
         defender_model = defender_cfg.get("model", "")
 
+    detector_configs = []
+    repair_provider = ""
+    repair_model = ""
+    if args.architecture == "B2":
+        detector_configs_raw = config.get("detectors", {})
+        detector_configs = [
+            {"type": label, "provider": d.get("provider", ""), "model": d.get("model", "")}
+            for label, d in detector_configs_raw.items()
+        ]
+        repair_cfg = config.get("repair", {})
+        repair_provider = repair_cfg.get("provider", "")
+        repair_model = repair_cfg.get("model", "")
+
     # 2) Check API keys
     check_api_keys(config)
 
@@ -170,6 +184,10 @@ async def main(argv: list[str] | None = None) -> None:
     print(f"Target:       {target_model} ({target_provider})")
     if args.architecture == "B1":
         print(f"Defender:     {defender_model} ({defender_provider})")
+    if args.architecture == "B2":
+        for dc in detector_configs:
+            print(f"  Detector:   {dc['type']:12s} {dc['model']} ({dc['provider']})")
+        print(f"  Repair:      {repair_model} ({repair_provider})")
     print(f"Samples:      {len(cases)}")
     print(f"Dataset hash: {dataset_hash}")
     print(f"Git commit:   {git_commit}")
@@ -197,6 +215,14 @@ async def main(argv: list[str] | None = None) -> None:
                     case=case, canary=canary,
                     target_provider=target_provider, target_model=target_model,
                     defender_provider=defender_provider, defender_model=defender_model,
+                    system_prompt_mode=args.system_prompt_mode,
+                )
+            elif args.architecture == "B2":
+                result = await run_b2(
+                    case=case, canary=canary,
+                    target_provider=target_provider, target_model=target_model,
+                    detector_configs=detector_configs,
+                    repair_provider=repair_provider, repair_model=repair_model,
                     system_prompt_mode=args.system_prompt_mode,
                 )
             else:
@@ -243,6 +269,17 @@ async def main(argv: list[str] | None = None) -> None:
                 kwargs["defender_input_tokens"] = result.get("_defender_input_tokens")
                 kwargs["defender_output_tokens"] = result.get("_defender_output_tokens")
                 kwargs["defender_raw"] = result.get("_b1_defender_raw")
+
+            if args.architecture == "B2":
+                for i in range(3):
+                    kwargs[f"detector_{i}_suspicious"] = result.get(f"_detector_{i}_suspicious")
+                    kwargs[f"detector_{i}_latency_ms"] = result.get(f"_detector_{i}_latency_ms")
+                    kwargs[f"detector_{i}_model"] = result.get(f"_detector_{i}_model")
+                kwargs["or_triggered"] = result.get("_or_triggered", False)
+                kwargs["repair_action"] = result.get("_repair_action")
+                kwargs["repair_latency_ms"] = result.get("_repair_latency_ms")
+                kwargs["repair_model"] = result.get("_repair_model")
+                kwargs["repair_raw"] = result.get("_repair_raw")
 
             record = RunRecord(**kwargs)
 

@@ -8,7 +8,7 @@ strong_defender:
 
 adjudicator:
   provider: siliconflow
-  model: "deepseek-ai/DeepSeek-V4-Flash"
+  model: "nex-agi/Nex-N2-Pro"
 
 repair:
   provider: openrouter

@@ -112,6 +112,23 @@ class RunRecord(BaseModel):
     defender_input_tokens: Optional[int] = None
     defender_output_tokens: Optional[int] = None
     defender_raw: Optional[str] = None
+    # ★ B2-specific — detectors
+    detector_0_suspicious: Optional[bool] = None
+    detector_1_suspicious: Optional[bool] = None
+    detector_2_suspicious: Optional[bool] = None
+    detector_0_latency_ms: Optional[float] = None
+    detector_1_latency_ms: Optional[float] = None
+    detector_2_latency_ms: Optional[float] = None
+    detector_0_model: Optional[str] = None
+    detector_1_model: Optional[str] = None
+    detector_2_model: Optional[str] = None
+
+    # ★ B2-specific — OR trigger & repair
+    or_triggered: bool = False
+    repair_action: Optional[str] = None
+    repair_latency_ms: Optional[float] = None
+    repair_model: Optional[str] = None
+    repair_raw: Optional[str] = None
 
     error: Optional[str] = None
     timestamp: str = ""
