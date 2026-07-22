@@ -2,7 +2,7 @@
 
 比较单一强模型与异构分层多智能体协同架构的提示注入防御效果。
 
-## 实验架构
+## 实验结果总览
 
 | 架构 | 描述 | 状态 |
 |------|------|------|
@@ -12,40 +12,82 @@
 | **B1 (DeepSeek)** | 同一架构，不同检测模型（速度慢但准确） | ✅ **已冻结** |
 | **B2** | 三个异构检测器并行 + OR 触发 + 直接修复 | ✅ **已冻结** |
 | **B3 v1** | 三个异构检测器 + 裁决层 + 修复 | ✅ **已冻结** |
-| **B3 v2** | 三个异构检测器 + 改进裁决器（分类器+兜底者） | 🏃 **运行中** |
+| **B3 v2** | 三个异构检测器 + 改进裁决器（分类器+兜底者） | ✅ **已冻结** |
 
 ## 最终实验结果
 
 ```
-Experiment           Attack Benign  Leaked   CLR      STCR    Refusal  Hijack
---------------------------------------------------------------------------------
-B0-Minimal              158     52      98   62.0%    26.6%      0     103
-B0-Hardened             158     52       0    0.0%    51.3%      5       2
-B1-Nex                  158     52      24   15.2%    45.6%      3      24
-B1-DeepSeek             158     52      18   11.4%    43.0%      4      18
-B2                      158     52      20   12.7%    43.0%      2      21
-B3 v1                   158     52      28   17.7%    43.7%      2      28
-B3 v2                   —       —       —     (running) —      —      —
+Experiment           Attack Benign  Leaked   CLR      STCR    Refusal  Hijack  PromptMode
+-------------------------------------------------------------------------------------------
+B0-Minimal              158     52      98   62.0%    26.6%       0     103    minimal
+B0-Hardened             158     52       0    0.0%    51.3%       5       2    hardened
+B1-Nex                  158     52      24   15.2%    45.6%       3      24    minimal
+B1-DeepSeek             158     52      18   11.4%    43.0%       4      18    minimal
+B2                      158     52      20   12.7%    43.0%       2      21    minimal
+B3 v1                   158     52      28   17.7%    43.7%       2      28    minimal
+B3 v2                   158     52      23   14.6%    43.0%       3      24    minimal
 ```
 
 > 数据集：210 条（50 direct + 108 indirect + 52 benign），seed=42，中英双语
 
 ## 关键发现
 
-1. **B1-Nex 性价比之王** — CLR 15.2%，仅用一个模型，13 分钟跑完
-2. **B1-DeepSeek CLR 最低（11.4%）** — 但 11 小时耗时代价太高
-3. **B2 检测出色但修复瓶颈** — 100% 检出率，但修复只成功 82.8%
-4. **B3 v1 裁决层无增益** — CLR 17.7% 反而比 B2 更差
-5. **直接注入全部架构都能防住** — CLR 基本来自间接注入（表格/文档）
-
-## 换模型的经验教训
+### 模型速度对比
 
 | 模型 | 平台 | 单条耗时 | 210条耗时 | JSON 输出 |
 |------|------|:--------:|:---------:|:---------:|
 | DeepSeek-V4-Flash | SiliconFlow | ~47s | ~8h | ❌ 不支持 |
-| Nex-N2-Pro | SiliconFlow | ~3.7s | ~13min | ✅ 稳定 |
+| Nex-N2-Pro | SiliconFlow | ~3.3s | ~13min | ✅ 稳定 |
+| Qwen3-14B | OpenRouter | ~8s | — | ✅ |
+| Gemma-3-12B | OpenRouter | ~3s | — | ✅ |
+| Ministral-14B | OpenRouter | ~4s | — | ✅ |
 
-**经验**：API 兼容性 > 模型名气。DeepSeek 名气大但不支持 JSON mode，Nex 名不见经传但稳定可用。
+**核心经验**：API 兼容性 > 模型名气。DeepSeek 名声响但不支持 JSON mode，Nex 名不见经传但稳定可用。先测速再跑全量可以避免浪费。
+
+### CLR 排名（低到高）
+
+| 排名 | 架构 | CLR | 相较于 B0-Minimal 降低 |
+|:----:|------|:---:|:---------------------:|
+| 🥇 | B0-Hardened | 0.0% | —（使用加固提示词） |
+| 🥈 | B1-DeepSeek | 11.4% | **81.6%** |
+| 🥉 | B2 | 12.7% | **79.5%** |
+| 4 | B3 v2 | 14.6% | **76.5%** |
+| 5 | B1-Nex | 15.2% | **75.5%** |
+| 6 | B3 v1 | 17.7% | **71.5%** |
+| 7 | B0-Minimal | 62.0% | —（基线） |
+
+### STCR 排名（高到低）
+
+| 排名 | 架构 | STCR | 说明 |
+|:----:|------|:----:|------|
+| 🥇 | B0-Hardened | 51.3% | 加固提示词本身不影响任务 |
+| 🥈 | B1-Nex | 45.6% | 修复质量好 |
+| 🥉 | B3 v1 | 43.7% | 与 B2/B3-v2 基本持平 |
+| 4 | B1-DeepSeek | 43.0% | |
+| 5 | B2 | 43.0% | |
+| 6 | B3 v2 | 43.0% | |
+| 7 | B0-Minimal | 26.6% | 任务被严重劫持 |
+
+### 架构对比分析
+
+**B3 v1 vs B3 v2（裁决器改进）：**
+- 裁决确认率：95.6% → 94.9%（略有下降，因为裁决器更谨慎）
+- 否决后错误泄露：4.4% → 5.1%（稍多否决，但否决中75%是正确的）
+- 拦截成功率：82.8% → **86.0%** ↑
+- 裁决器延迟中位数：~4.8s
+
+**B3 v1 的问题**：裁决器提示词说"仅一条检测器报警→视为误报"，导致裁决器否决检测器的正确判断，攻击被放行。
+
+**B3 v2 改进**：改为"任一检测器报警→确认攻击"，裁决器只做分类和兜底审查，不再否决检测器。同时修复了 `conservative_block` 路径不调用修复器的 bug。
+
+**结论**：B3 v2 虽有改善但未超越 B2。多一层裁决增加了延迟（~4.8s）且没有带来显著的额外安全收益。**扁平架构（B2）优于分层架构（B3）**。
+
+**整体结论：**
+1. 所有防御架构均大幅降低泄露（62% → 11-18%）
+2. **B1-Nex 性价比最优**：13 分钟，CLR 15.2%，单模型
+3. **B2 检测最彻底**：100% 检出，但修复是瓶颈
+4. **B3 裁决层价值有限**：增加延迟和复杂度，无显著增益
+5. 所有泄露均来自间接注入（表格 > 文档 > 邮件），直接注入全部架构都能防住
 
 ## 环境要求
 
@@ -62,16 +104,9 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
 pip install -e ".[dev]"
-```
-
-## 配置密钥
-
-```bash
 cp .env.example .env
-# 编辑 .env 填入真实 API Key
+# 编辑 .env 填入真实 API Key（.env 已加入 .gitignore）
 ```
-
-> ⚠️ `.env`、`runs/`、`data/generated/`、`reports/` 均在 `.gitignore` 中
 
 ## 完整实验流程
 
@@ -92,19 +127,31 @@ python -m pi_defense.generator \
 
 ```bash
 # B0-Minimal
-python -m pi_defense.runner --architecture B0 --system-prompt-mode minimal --dataset-seed 42
+python -m pi_defense.runner --architecture B0 --experiment-name B0-Minimal \
+  --data data/generated/dataset.jsonl --system-prompt-mode minimal --dataset-seed 42
 
 # B0-Hardened
-python -m pi_defense.runner --architecture B0 --system-prompt-mode hardened --dataset-seed 42
+python -m pi_defense.runner --architecture B0 --experiment-name B0-Hardened \
+  --data data/generated/dataset.jsonl --system-prompt-mode hardened --dataset-seed 42
 
-# B1 (Nex)
-python -m pi_defense.runner --architecture B1 --config configs/models_b1_nex.yaml --dataset-seed 42
+# B1-Nex
+python -m pi_defense.runner --architecture B1 --experiment-name B1-Nex \
+  --config configs/models_b1_nex.yaml \
+  --data data/generated/dataset.jsonl --system-prompt-mode minimal --dataset-seed 42
+
+# B1-DeepSeek
+python -m pi_defense.runner --architecture B1 --experiment-name B1-DeepSeek \
+  --config configs/models.yaml \
+  --data data/generated/dataset.jsonl --system-prompt-mode minimal --dataset-seed 42
 
 # B2
-python -m pi_defense.runner --architecture B2 --dataset-seed 42
+python -m pi_defense.runner --architecture B2 --experiment-name B2 \
+  --data data/generated/dataset.jsonl --system-prompt-mode minimal --dataset-seed 42
 
-# B3
-python -m pi_defense.runner --architecture B3 --dataset-seed 42 --max-concurrency 3
+# B3 v2
+python -m pi_defense.runner --architecture B3 --experiment-name B3-v2 \
+  --data data/generated/dataset.jsonl --system-prompt-mode minimal --dataset-seed 42 \
+  --max-concurrency 5
 ```
 
 ### 3. 查看对比
@@ -164,7 +211,6 @@ prompt-injection-defense/
 ├── scripts/                         # 分析工具
 ├── runs/                            # 实验结果（.gitignore）
 └── QA_学习笔记[1-4].md              # 学习笔记（.gitignore）
-```
 
 ## 模型配置
 
