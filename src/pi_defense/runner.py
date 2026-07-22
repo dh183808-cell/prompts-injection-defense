@@ -1,9 +1,6 @@
-"""
-Command-line entry point for prompt injection defense experiments.
+"""Command-line entry point for prompt injection defense experiments.
 
-Supported architectures:
-  B0 — no defense (baseline)
-  B1 — single strong model detect + repair
+Supported architectures: B0, B1, B2, B3
 """
 
 import argparse
@@ -26,6 +23,7 @@ from pi_defense.schemas import ExperimentCase, RunRecord
 from pi_defense.workflows.b0 import run_b0
 from pi_defense.workflows.b1 import run_b1
 from pi_defense.workflows.b2 import run_b2
+from pi_defense.workflows.b3 import run_b3
 
 load_dotenv()
 
@@ -111,13 +109,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--output", default="runs/b0_smoke.jsonl")
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--canary-map", default=None)
-    parser.add_argument("--experiment-name", default=None,
-                        help="Tag written into each run_id")
-    parser.add_argument("--system-prompt-mode", default="minimal",
-                        choices=["minimal", "hardened"],
+    parser.add_argument("--experiment-name", default=None, help="Tag written into each run_id")
+    parser.add_argument("--system-prompt-mode", default="minimal", choices=["minimal", "hardened"],
                         help="minimal or hardened system prompt")
-    parser.add_argument("--dataset-seed", type=int, default=None,
-                        help="Random seed used to generate the dataset")
+    parser.add_argument("--dataset-seed", type=int, default=None, help="Dataset random seed")
+    parser.add_argument("--max-concurrency", type=int, default=1,
+                        help="Max concurrent samples (default 1 = sequential)")
     return parser.parse_args(argv)
 
 
@@ -130,17 +127,15 @@ async def main(argv: list[str] | None = None) -> None:
     target_provider: str = target_cfg["provider"]
     target_model: str = target_cfg["model"]
 
-    defender_provider = ""
-    defender_model = ""
+    defender_provider = defender_model = ""
     if args.architecture == "B1":
         defender_cfg = config.get("strong_defender", {})
         defender_provider = defender_cfg.get("provider", "")
         defender_model = defender_cfg.get("model", "")
 
-    detector_configs = []
-    repair_provider = ""
-    repair_model = ""
-    if args.architecture == "B2":
+    detector_configs: list[dict] = []
+    repair_provider = repair_model = adjudicator_provider = adjudicator_model = ""
+    if args.architecture in ("B2", "B3"):
         detector_configs_raw = config.get("detectors", {})
         detector_configs = [
             {"type": label, "provider": d.get("provider", ""), "model": d.get("model", "")}
@@ -149,6 +144,10 @@ async def main(argv: list[str] | None = None) -> None:
         repair_cfg = config.get("repair", {})
         repair_provider = repair_cfg.get("provider", "")
         repair_model = repair_cfg.get("model", "")
+    if args.architecture == "B3":
+        adj_cfg = config.get("adjudicator", {})
+        adjudicator_provider = adj_cfg.get("provider", "")
+        adjudicator_model = adj_cfg.get("model", "")
 
     # 2) Check API keys
     check_api_keys(config)
@@ -158,23 +157,17 @@ async def main(argv: list[str] | None = None) -> None:
     if args.limit is not None:
         cases = cases[: args.limit]
 
-    # 4) Dataset hash
     dataset_hash = compute_dataset_hash(args.data)
 
-    # 5) Canary map
     canary_map: dict[str, str] = {}
     if args.canary_map:
         with open(args.canary_map, "r", encoding="utf-8") as f:
             canary_map = json.load(f)
 
-    # 6) Git commit
     git_commit = _get_git_commit()
-
-    # 7) Run ID
     exp_tag = args.experiment_name or args.architecture
     run_stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     run_id = f"{exp_tag}_{run_stamp}_{uuid.uuid4().hex[:8]}"
-
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -182,153 +175,148 @@ async def main(argv: list[str] | None = None) -> None:
     print(f"Experiment:   {exp_tag}")
     print(f"Prompt mode:  {args.system_prompt_mode}")
     print(f"Target:       {target_model} ({target_provider})")
+    print(f"Concurrency:  {args.max_concurrency}")
     if args.architecture == "B1":
         print(f"Defender:     {defender_model} ({defender_provider})")
-    if args.architecture == "B2":
+    if args.architecture in ("B2", "B3"):
         for dc in detector_configs:
             print(f"  Detector:   {dc['type']:12s} {dc['model']} ({dc['provider']})")
         print(f"  Repair:      {repair_model} ({repair_provider})")
+    if args.architecture == "B3":
+        print(f"  Adjudicator: {adjudicator_model} ({adjudicator_provider})")
     print(f"Samples:      {len(cases)}")
     print(f"Dataset hash: {dataset_hash}")
     print(f"Git commit:   {git_commit}")
     print()
 
-    records: list[RunRecord] = []
-    all_leaked = 0
-    all_errors = 0
-    all_adjudicated_attack = 0
+    sem = asyncio.Semaphore(args.max_concurrency)
 
-    # 8) Process each case
-    for i, case in enumerate(cases):
+    async def process_one(case: ExperimentCase) -> RunRecord:
         canary = canary_map.get(case.case_id) or generate_canary(case.case_id)
-        print(f"[{i + 1}/{len(cases)}] {case.case_id}  kind={case.kind}", end="")
+        async with sem:
+            try:
+                if args.architecture == "B0":
+                    result = await run_b0(case=case, canary=canary,
+                                          target_provider=target_provider, target_model=target_model,
+                                          system_prompt_mode=args.system_prompt_mode)
+                elif args.architecture == "B1":
+                    result = await run_b1(case=case, canary=canary,
+                                          target_provider=target_provider, target_model=target_model,
+                                          defender_provider=defender_provider, defender_model=defender_model,
+                                          system_prompt_mode=args.system_prompt_mode)
+                elif args.architecture == "B2":
+                    result = await run_b2(case=case, canary=canary,
+                                          target_provider=target_provider, target_model=target_model,
+                                          detector_configs=detector_configs,
+                                          repair_provider=repair_provider, repair_model=repair_model,
+                                          system_prompt_mode=args.system_prompt_mode)
+                elif args.architecture == "B3":
+                    result = await run_b3(case=case, canary=canary,
+                                          target_provider=target_provider, target_model=target_model,
+                                          detector_configs=detector_configs,
+                                          adjudicator_provider=adjudicator_provider,
+                                          adjudicator_model=adjudicator_model,
+                                          repair_provider=repair_provider, repair_model=repair_model,
+                                          system_prompt_mode=args.system_prompt_mode)
+                else:
+                    raise NotImplementedError(f"Architecture {args.architecture} not yet implemented")
 
-        try:
-            if args.architecture == "B0":
-                result = await run_b0(
-                    case=case, canary=canary,
-                    target_provider=target_provider, target_model=target_model,
+                leaked, leak_variant = detect_canary_leak(result["content"], canary)
+                score = score_task(result["content"], case.expected_answer)
+
+                kwargs = dict(
+                    run_id=run_id, case_id=case.case_id, base_case_id=case.base_case_id,
+                    architecture=args.architecture, kind=case.kind, attack_family=case.attack_family,
+                    configured_model=target_model, actual_model=result.get("actual_model"),
+                    target_output=result["content"], leaked=leaked, leak_variant=leak_variant,
+                    task_correct_auto=score["task_correct_auto"],
+                    task_correct_manual=score["task_correct_manual"],
+                    task_correct=score["task_correct_auto"],
+                    failure_category=score["failure_category"],
+                    over_refusal=score["over_refusal"], task_hijacked=score["task_hijacked"],
+                    latency_ms=result.get("latency_ms"), input_tokens=result.get("input_tokens"),
+                    output_tokens=result.get("output_tokens"),
                     system_prompt_mode=args.system_prompt_mode,
+                    system_prompt_hash=result.get("_system_prompt_hash"),
+                    dataset_seed=args.dataset_seed, dataset_hash=dataset_hash,
+                    temperature=0.0, max_tokens=256, git_commit=git_commit,
                 )
-            elif args.architecture == "B1":
-                result = await run_b1(
-                    case=case, canary=canary,
-                    target_provider=target_provider, target_model=target_model,
-                    defender_provider=defender_provider, defender_model=defender_model,
+
+                # B1 fields
+                if args.architecture == "B1":
+                    kwargs["defender_is_attack"] = result.get("_b1_is_attack", False)
+                    kwargs["defender_repaired"] = result.get("_b1_repaired", False)
+                    kwargs["defender_model"] = result.get("_defender_actual_model", "")
+                    kwargs["defender_latency_ms"] = result.get("_defender_latency_ms")
+                    kwargs["defender_input_tokens"] = result.get("_defender_input_tokens")
+                    kwargs["defender_output_tokens"] = result.get("_defender_output_tokens")
+                    kwargs["defender_raw"] = result.get("_b1_defender_raw")
+
+                # B2/B3 shared fields
+                if args.architecture in ("B2", "B3"):
+                    for i in range(3):
+                        kwargs[f"detector_{i}_suspicious"] = result.get(f"_detector_{i}_suspicious")
+                        kwargs[f"detector_{i}_latency_ms"] = result.get(f"_detector_{i}_latency_ms")
+                        kwargs[f"detector_{i}_model"] = result.get(f"_detector_{i}_model")
+                    kwargs["or_triggered"] = result.get("_or_triggered", False)
+                    kwargs["repair_action"] = result.get("_repair_action")
+                    kwargs["repair_latency_ms"] = result.get("_repair_latency_ms")
+                    kwargs["repair_model"] = result.get("_repair_model")
+                    kwargs["repair_raw"] = result.get("_repair_raw")
+
+                # B3-only fields
+                if args.architecture == "B3":
+                    kwargs["adjudicator_confirmed"] = result.get("_adjudicator_confirmed", False)
+                    kwargs["adjudicator_action"] = result.get("_adjudicator_action")
+                    kwargs["adjudicator_latency_ms"] = result.get("_adjudicator_latency_ms")
+                    kwargs["adjudicator_model"] = result.get("_adjudicator_model")
+                    kwargs["adjudicator_raw"] = result.get("_adjudicator_raw")
+
+                return RunRecord(**kwargs)
+
+            except Exception as e:
+                return RunRecord(
+                    run_id=run_id, case_id=case.case_id, base_case_id=case.base_case_id,
+                    architecture=args.architecture, kind=case.kind, attack_family=case.attack_family,
+                    configured_model=target_model, target_output="", leaked=False,
+                    error=f"{type(e).__name__}: {e}",
                     system_prompt_mode=args.system_prompt_mode,
-                )
-            elif args.architecture == "B2":
-                result = await run_b2(
-                    case=case, canary=canary,
-                    target_provider=target_provider, target_model=target_model,
-                    detector_configs=detector_configs,
-                    repair_provider=repair_provider, repair_model=repair_model,
-                    system_prompt_mode=args.system_prompt_mode,
-                )
-            else:
-                raise NotImplementedError(
-                    f"Architecture {args.architecture} not yet implemented"
+                    dataset_seed=args.dataset_seed, dataset_hash=dataset_hash,
+                    temperature=0.0, max_tokens=256, git_commit=git_commit,
                 )
 
-            leaked, leak_variant = detect_canary_leak(result["content"], canary)
-            score = score_task(result["content"], case.expected_answer)
-
-            # Common fields
-            kwargs = dict(
-                run_id=run_id, case_id=case.case_id,
-                base_case_id=case.base_case_id,
-                architecture=args.architecture,
-                kind=case.kind, attack_family=case.attack_family,
-                configured_model=target_model,
-                actual_model=result.get("actual_model"),
-                target_output=result["content"],
-                leaked=leaked, leak_variant=leak_variant,
-                task_correct_auto=score["task_correct_auto"],
-                task_correct_manual=score["task_correct_manual"],
-                task_correct=score["task_correct_auto"],
-                failure_category=score["failure_category"],
-                over_refusal=score["over_refusal"],
-                task_hijacked=score["task_hijacked"],
-                latency_ms=result.get("latency_ms"),
-                input_tokens=result.get("input_tokens"),
-                output_tokens=result.get("output_tokens"),
-                system_prompt_mode=args.system_prompt_mode,
-                system_prompt_hash=result.get("_system_prompt_hash"),
-                dataset_seed=args.dataset_seed,
-                dataset_hash=dataset_hash,
-                temperature=0.0, max_tokens=256,
-                git_commit=git_commit,
-            )
-
-            # B1-specific fields
-            if args.architecture == "B1":
-                kwargs["defender_is_attack"] = result.get("_b1_is_attack", False)
-                kwargs["defender_repaired"] = result.get("_b1_repaired", False)
-                kwargs["defender_model"] = result.get("_defender_actual_model", "")
-                kwargs["defender_latency_ms"] = result.get("_defender_latency_ms")
-                kwargs["defender_input_tokens"] = result.get("_defender_input_tokens")
-                kwargs["defender_output_tokens"] = result.get("_defender_output_tokens")
-                kwargs["defender_raw"] = result.get("_b1_defender_raw")
-
-            if args.architecture == "B2":
-                for i in range(3):
-                    kwargs[f"detector_{i}_suspicious"] = result.get(f"_detector_{i}_suspicious")
-                    kwargs[f"detector_{i}_latency_ms"] = result.get(f"_detector_{i}_latency_ms")
-                    kwargs[f"detector_{i}_model"] = result.get(f"_detector_{i}_model")
-                kwargs["or_triggered"] = result.get("_or_triggered", False)
-                kwargs["repair_action"] = result.get("_repair_action")
-                kwargs["repair_latency_ms"] = result.get("_repair_latency_ms")
-                kwargs["repair_model"] = result.get("_repair_model")
-                kwargs["repair_raw"] = result.get("_repair_raw")
-
-            record = RunRecord(**kwargs)
-
-            if leaked:
-                all_leaked += 1
-            if result.get("_b1_is_attack"):
-                all_adjudicated_attack += 1
-
-        except Exception as e:
-            record = RunRecord(
-                run_id=run_id, case_id=case.case_id,
-                base_case_id=case.base_case_id,
-                architecture=args.architecture,
-                kind=case.kind, attack_family=case.attack_family,
-                configured_model=target_model,
-                target_output="", leaked=False,
-                error=f"{type(e).__name__}: {e}",
-                system_prompt_mode=args.system_prompt_mode,
-                dataset_seed=args.dataset_seed, dataset_hash=dataset_hash,
-                temperature=0.0, max_tokens=256, git_commit=git_commit,
-            )
-            all_errors += 1
+    # Process with concurrency
+    tasks = [process_one(case) for case in cases]
+    records = []
+    for coro in asyncio.as_completed(tasks):
+        record = await coro
+        records.append(record)
 
         with output_path.open("a", encoding="utf-8") as out:
             out.write(record.model_dump_json() + "\n")
 
-        records.append(record)
+        # Status line
         parts = []
         if record.error:
             parts.append(f"  ERROR: {record.error[:60]}")
         else:
             parts.append(f"  leaked={record.leaked}  correct={record.task_correct_auto}")
-            if args.architecture == "B1":
-                parts.append(f"  def-attack={record.defender_is_attack}")
             if record.latency_ms:
                 parts.append(f"  {record.latency_ms:.0f}ms")
             if record.failure_category and record.failure_category != "none":
                 parts.append(f"  [{record.failure_category}]")
+        print(f"[{len(records)}/{len(cases)}] {record.case_id}  kind={record.kind}", end="")
         print("".join(parts))
 
-    # 9) Summary
+    # Summary
+    all_leaked = sum(1 for r in records if r.leaked)
+    all_errors = sum(1 for r in records if r.error)
+    over = sum(1 for r in records if r.over_refusal)
+    hij = sum(1 for r in records if r.task_hijacked)
     print()
     print(f"===== Complete =====")
     print(f"  Output:     {args.output}")
     print(f"  Total:      {len(records)} | Leaked: {all_leaked} | Errors: {all_errors}")
-    if args.architecture == "B1":
-        print(f"  Defender flagged as attack: {all_adjudicated_attack}")
-    over = sum(1 for r in records if r.over_refusal)
-    hij = sum(1 for r in records if r.task_hijacked)
     print(f"  Over-refusal: {over} | Hijacked: {hij}")
     if args.experiment_name:
         print(f"  Experiment: {args.experiment_name}")
