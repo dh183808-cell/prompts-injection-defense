@@ -1,14 +1,14 @@
-"""Final comparison: B0-Minimal, B0-Hardened, B1-Nex, B1-DeepSeek, B2, B3 + B3 adjudicator analysis."""
+"""Final comparison: all 7 experiments + B3 v2 adjudicator analysis."""
 import json
-from collections import Counter
 
 FILES = [
-    ("B0-Minimal",  "runs/b0_minimal.jsonl", "minimal"),
-    ("B0-Hardened", "runs/b0_hardened.jsonl", "hardened"),
-    ("B1-Nex",      "runs/b1_nex.jsonl", "minimal"),
-    ("B1-DeepSeek", "runs/b1.jsonl", "minimal"),
-    ("B2",          "runs/b2.jsonl", "minimal"),
-    ("B3",          "runs/b3.jsonl", "minimal"),
+    ("B0-Minimal",   "runs/b0_minimal.jsonl",   "minimal"),
+    ("B0-Hardened",  "runs/b0_hardened.jsonl",  "hardened"),
+    ("B1-Nex",       "runs/b1_nex.jsonl",       "minimal"),
+    ("B1-DeepSeek",  "runs/b1.jsonl",           "minimal"),
+    ("B2",           "runs/b2.jsonl",           "minimal"),
+    ("B3-v1",        "runs/b3.jsonl",           "minimal"),
+    ("B3-v2(fixed)", "runs/b3_v2.jsonl",        "minimal"),
 ]
 
 def load(p):
@@ -35,9 +35,9 @@ for r in rows:
     print(f"{r[0]:<20} {r[1]:>6} {r[2]:>6} {r[3]:>7} {r[4]:>10} {r[5]:>10} {r[6]:>7} {r[7]:>7} {r[8]:>5} {r[9]:>12}")
 print("=" * 108)
 
-# B3 adjudicator deep-dive (limited to available records, 143 currently)
+# B3 v2 adjudicator deep-dive
 print()
-b3 = load("runs/b3.jsonl")
+b3 = load("runs/b3_v2.jsonl")
 attack = [r for r in b3 if r["kind"] in ("direct","indirect")]
 n = len(attack) or 1
 confirmed = sum(1 for r in attack if r.get("adjudicator_confirmed"))
@@ -47,17 +47,18 @@ confirmed_leaked = sum(1 for r in attack if r.get("adjudicator_confirmed") and r
 denied_blocked = sum(1 for r in attack if r.get("or_triggered") and not r.get("adjudicator_confirmed") and not r["leaked"])
 denied_leaked = sum(1 for r in attack if r.get("or_triggered") and not r.get("adjudicator_confirmed") and r["leaked"])
 
-print(f"=== B3 Adjudicator Analysis ({len(b3)} total, {len(attack)} attack) ===")
+print(f"=== B3-v2 Adjudicator Analysis ({len(b3)} total, {len(attack)} attack) ===")
 print()
 print(f"  Attack samples:           {len(attack)}")
 print(f"  OR triggered:             {confirmed + denied}/{len(attack)} = {(confirmed+denied)/n*100:.1f}%")
 print(f"  Adjudicator confirmed:    {confirmed} = {confirmed/n*100:.1f}%")
 print(f"  Adjudicator denied:       {denied} = {denied/n*100:.1f}%")
 print()
-print(f"  Of {confirmed} confirmed:")
-print(f"    Blocked (no leak):      {confirmed_blocked} ({confirmed_blocked/confirmed*100:.1f}% of confirmed)" if confirmed else "    N/A")
-print(f"    Still leaked:           {confirmed_leaked} ({confirmed_leaked/confirmed*100:.1f}% of confirmed)" if confirmed else "    N/A")
-print()
-print(f"  Of {denied} denied (overruled detectors):")
-print(f"    Actually no leak:       {denied_blocked} ({denied_blocked/denied*100:.1f}%)" if denied else "    N/A")
-print(f"    Leaked (wrong denial):  {denied_leaked} ({denied_leaked/denied*100:.1f}%)" if denied else "    N/A")
+if confirmed:
+    print(f"  Of {confirmed} confirmed:")
+    print(f"    Blocked (no leak):      {confirmed_blocked} ({confirmed_blocked/confirmed*100:.1f}%)")
+    print(f"    Still leaked:           {confirmed_leaked} ({confirmed_leaked/confirmed*100:.1f}%)")
+if denied:
+    print(f"  Of {denied} denied (overruled detectors):")
+    print(f"    Actually no leak:       {denied_blocked} ({denied_blocked/denied*100:.1f}%)")
+    print(f"    Leaked (wrong denial):  {denied_leaked} ({denied_leaked/denied*100:.1f}%)")
